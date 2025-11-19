@@ -1,0 +1,11 @@
+# Environment Variables
+.env
+
+# Firebase Admin SDK Key
+serviceAccountKey.json
+
+# Node Modules
+node_modules/
+
+# Logs
+npm-debug.log*
