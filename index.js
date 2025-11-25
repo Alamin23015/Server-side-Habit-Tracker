@@ -1,4 +1,4 @@
-// server/index.js
+
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -12,13 +12,13 @@ const port = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     "http://localhost:5173", 
-    // "https://your-live-site.web.app" // ডিপ্লয় করার পর লাইভ লিঙ্ক দিবেন
+    
   ],
   credentials: true
 }));
 app.use(express.json());
 
-// Firebase Admin Setup
+
 try {
   const serviceAccount = require('./serviceAccountKey.json'); 
   admin.initializeApp({
@@ -29,7 +29,7 @@ try {
   console.error("Firebase Admin Init Failed:", error.message);
 }
 
-// MongoDB Connection
+
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
@@ -50,7 +50,7 @@ async function connectDB() {
 }
 connectDB().catch(console.dir);
 
-// --- Token Verify Middleware ---
+
 async function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -66,28 +66,28 @@ async function verifyToken(req, res, next) {
   }
 }
 
-// --- Streak Calculator (GitHub Style) ---
+
 function calculateStreak(completionHistory) {
   if (!completionHistory || completionHistory.length === 0) return 0;
 
-  // ১. তারিখ ইউনিক করা এবং ডিসেন্ডিং অর্ডারে সর্ট করা
+ 
   const sortedDates = [...new Set(completionHistory.map(d => new Date(d).toISOString().split('T')[0]))]
     .sort((a, b) => new Date(b) - new Date(a));
 
   let streak = 0;
   const today = new Date().toISOString().split('T')[0]; // আজ
   
-  // গতকালের তারিখ
+ 
   const yesterdayDate = new Date();
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
   const yesterday = yesterdayDate.toISOString().split('T')[0];
 
-  // প্রথম তারিখ যদি আজ বা গতকাল না হয়, তাহলে স্ট্রিক ০
+  
   if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {
     return 0;
   }
 
-  // ২. লুপ চালিয়ে ধারাবাহিকতা চেক করা
+  
   let currentDateToCheck = new Date(sortedDates[0]); 
 
   for (let i = 0; i < sortedDates.length; i++) {
@@ -96,39 +96,34 @@ function calculateStreak(completionHistory) {
 
     if (dateStr === checkStr) {
       streak++;
-      // পরের চেকের জন্য ১ দিন পিছিয়ে যাওয়া
+      
       currentDateToCheck.setDate(currentDateToCheck.getDate() - 1);
     } else {
-      break; // ধারাবাহিকতা ব্রেক
+      break; 
     }
   }
   return streak;
 }
 
-// ---------------------------
-// API Routes
-// ---------------------------
 
-// ১. Public Route: Get All Habits (Search, Filter, Featured এর জন্য)
-// এটি verifyToken ছাড়া, কারণ হোম পেজে সবাই দেখবে
 app.get('/api/habits', async (req, res) => {
   try {
     const { search, category } = req.query;
     let query = {};
 
-    // সার্চ লজিক
+   
     if (search) {
       query.title = { $regex: search, $options: 'i' };
     }
-    // ক্যাটাগরি ফিল্টার
+   
     if (category && category !== 'All') {
       query.category = category;
     }
 
     const habits = await habitCollection
       .find(query)
-      .sort({ createdAt: -1 }) // লেটেস্ট আগে
-      .limit(20) // আপাতত ২০টা, প্রয়োজনে বাড়াতে পারেন
+      .sort({ createdAt: -1 }) 
+      .limit(20) 
       .toArray();
       
     res.send(habits);
@@ -137,7 +132,7 @@ app.get('/api/habits', async (req, res) => {
   }
 });
 
-// ২. Create Habit (Private)
+
 app.post('/api/habits', verifyToken, async (req, res) => {
   try {
     const habitData = req.body;
@@ -169,7 +164,7 @@ app.get('/api/habits/my', verifyToken, async (req, res) => {
   }
 });
 
-// ৪. Delete Habit (Private)
+
 app.delete('/api/habits/:id', verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
@@ -186,8 +181,7 @@ app.delete('/api/habits/:id', verifyToken, async (req, res) => {
 app.patch('/api/habits/:id/complete', verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
-    // নোট: ইউজার আইডি দিয়ে ফিল্টার করছি না, যাতে সবাই পাবলিক হ্যাবিট কমপ্লিট করতে পারে (রিকোয়ারমেন্ট অনুযায়ী)
-    // যদি চান শুধু নিজেরটা করবে, তবে `firebaseUid: req.user.uid` যোগ করবেন।
+    
     const query = { _id: new ObjectId(id) }; 
 
     const habit = await habitCollection.findOne(query);
@@ -215,14 +209,14 @@ app.patch('/api/habits/:id/complete', verifyToken, async (req, res) => {
   }
 });
 
-// ৬. Update Habit (Private)
+
 app.put('/api/habits/:id', verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
     const updatedData = req.body;
     const query = { _id: new ObjectId(id), firebaseUid: req.user.uid };
     
-    // সেনসিটিভ ডেটা রিমুভ
+    
     delete updatedData._id;
     delete updatedData.userEmail;
     delete updatedData.userName;
