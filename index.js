@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -8,29 +7,45 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors({
+
+const corsOptions = {
   origin: [
-    "http://localhost:5173", 
-    
+    "http://localhost:5173",
+    "https://habit-tracker-phi.vercel.app", 
+    "https://server-three-lake.vercel.app" 
   ],
-  credentials: true
-}));
+  credentials: true,
+  optionSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 
 try {
-  const serviceAccount = require('./serviceAccountKey.json'); 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-  console.log("Firebase Admin Initialized");
+    let serviceAccount;
+   
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else {
+        
+        serviceAccount = require('./serviceAccountKey.json');
+    }
+    
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log("Firebase Admin Initialized Successfully");
 } catch (error) {
-  console.error("Firebase Admin Init Failed:", error.message);
+    console.error("Firebase Admin Init Failed:", error.message);
+   
 }
 
 
 const uri = process.env.MONGODB_URI;
+if (!uri) {
+    console.error("MongoDB URI is missing in .env file");
+}
+
 const client = new MongoClient(uri, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
 });
@@ -45,16 +60,16 @@ async function connectDB() {
     console.log("MongoDB Atlas Connected!");
   } catch (error) {
     console.error("MongoDB Connection Failed:", error);
-    process.exit(1);
+   
   }
 }
-connectDB().catch(console.dir);
+connectDB();
 
 
 async function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).send({ message: 'Unauthorized' });
+    return res.status(401).send({ message: 'Unauthorized access' });
   }
   const token = authHeader.split(' ')[1];
   try {
@@ -70,24 +85,20 @@ async function verifyToken(req, res, next) {
 function calculateStreak(completionHistory) {
   if (!completionHistory || completionHistory.length === 0) return 0;
 
- 
   const sortedDates = [...new Set(completionHistory.map(d => new Date(d).toISOString().split('T')[0]))]
     .sort((a, b) => new Date(b) - new Date(a));
 
   let streak = 0;
-  const today = new Date().toISOString().split('T')[0]; // আজ
+  const today = new Date().toISOString().split('T')[0];
   
- 
   const yesterdayDate = new Date();
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
   const yesterday = yesterdayDate.toISOString().split('T')[0];
 
-  
   if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {
     return 0;
   }
 
-  
   let currentDateToCheck = new Date(sortedDates[0]); 
 
   for (let i = 0; i < sortedDates.length; i++) {
@@ -96,7 +107,6 @@ function calculateStreak(completionHistory) {
 
     if (dateStr === checkStr) {
       streak++;
-      
       currentDateToCheck.setDate(currentDateToCheck.getDate() - 1);
     } else {
       break; 
@@ -106,16 +116,25 @@ function calculateStreak(completionHistory) {
 }
 
 
+
+app.get('/', (req, res) => {
+    res.send('Habit Tracker Server is Running...');
+});
+
+
 app.get('/api/habits', async (req, res) => {
   try {
+
+    if (!habitCollection) {
+        return res.status(500).send({ message: "Database not initialized yet" });
+    }
+
     const { search, category } = req.query;
     let query = {};
 
-   
     if (search) {
       query.title = { $regex: search, $options: 'i' };
     }
-   
     if (category && category !== 'All') {
       query.category = category;
     }
@@ -128,6 +147,7 @@ app.get('/api/habits', async (req, res) => {
       
     res.send(habits);
   } catch (err) {
+    console.error("Error fetching habits:", err);
     res.status(500).send({ message: "Failed to load public habits" });
   }
 });
@@ -153,7 +173,7 @@ app.post('/api/habits', verifyToken, async (req, res) => {
   }
 });
 
-// ৩. Get My Habits (Private)
+
 app.get('/api/habits/my', verifyToken, async (req, res) => {
   try {
     const query = { firebaseUid: req.user.uid };
@@ -177,11 +197,10 @@ app.delete('/api/habits/:id', verifyToken, async (req, res) => {
   }
 });
 
-// ৫. Mark Complete (Private - Streak Logic Here)
+
 app.patch('/api/habits/:id/complete', verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
-    
     const query = { _id: new ObjectId(id) }; 
 
     const habit = await habitCollection.findOne(query);
@@ -216,7 +235,7 @@ app.put('/api/habits/:id', verifyToken, async (req, res) => {
     const updatedData = req.body;
     const query = { _id: new ObjectId(id), firebaseUid: req.user.uid };
     
-    
+  
     delete updatedData._id;
     delete updatedData.userEmail;
     delete updatedData.userName;
@@ -232,10 +251,6 @@ app.put('/api/habits/:id', verifyToken, async (req, res) => {
   } catch (err) {
     res.status(500).send({ message: "Failed to update habit", error: err.message });
   }
-});
-
-app.get('/', (req, res) => {
-  res.send('Habit Tracker Server Running!');
 });
 
 app.listen(port, () => {
