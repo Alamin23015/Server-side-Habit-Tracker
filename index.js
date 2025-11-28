@@ -11,8 +11,8 @@ const port = process.env.PORT || 5000;
 const corsOptions = {
   origin: [
     "http://localhost:5173",
-    "https://habit-tracker-phi.vercel.app", 
-    "https://server-three-lake.vercel.app" 
+    "https://habit-tracker-phi.vercel.app",
+    "https://server-three-lake.vercel.app"
   ],
   credentials: true,
   optionSuccessStatus: 200,
@@ -21,46 +21,40 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 
+let serviceAccount;
 try {
-    let serviceAccount;
-   
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    } else {
-        
-        serviceAccount = require('./serviceAccountKey.json');
-    }
-    
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
-    console.log("Firebase Admin Initialized Successfully");
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    serviceAccount = require('./serviceAccountKey.json');
+  }
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+  console.log("Firebase Admin Initialized Successfully");
 } catch (error) {
-    console.error("Firebase Admin Init Failed:", error.message);
-   
+  console.error("Firebase Admin Init Failed:", error.message);
 }
 
 
 const uri = process.env.MONGODB_URI;
-if (!uri) {
-    console.error("MongoDB URI is missing in .env file");
-}
+if (!uri) throw new Error("MONGODB_URI is missing!");
 
 const client = new MongoClient(uri, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
 });
 
-let db, habitCollection;
+let habitCollection;
 
 async function connectDB() {
   try {
     await client.connect();
-    db = client.db("habitTrackerDB"); 
+    const db = client.db("habitTrackerDB");
     habitCollection = db.collection("habits");
-    console.log("MongoDB Atlas Connected!");
-  } catch (error) {
-    console.error("MongoDB Connection Failed:", error);
-   
+    console.log("MongoDB Connected!");
+  } catch (err) {
+    console.error("MongoDB Connection Failed:", err);
+    process.exit(1);
   }
 }
 connectDB();
@@ -69,15 +63,19 @@ connectDB();
 async function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).send({ message: 'Unauthorized access' });
+    return res.status(401).json({ message: 'Unauthorized: No token' });
   }
+
   const token = authHeader.split(' ')[1];
+
   try {
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = decodedToken;
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = decoded; 
+    console.log(`Token verified for UID: ${decoded.uid} | Email: ${decoded.email}`);
     next();
-  } catch (error) {
-    return res.status(403).send({ message: 'Forbidden: Invalid token' });
+  } catch (err) {
+    console.error("Token verification failed:", err.message);
+    return res.status(403).json({ message: 'Invalid or expired token' });
   }
 }
 
@@ -85,70 +83,45 @@ async function verifyToken(req, res, next) {
 function calculateStreak(completionHistory) {
   if (!completionHistory || completionHistory.length === 0) return 0;
 
-  const sortedDates = [...new Set(completionHistory.map(d => new Date(d).toISOString().split('T')[0]))]
+  const dates = [...new Set(completionHistory.map(d => new Date(d).toISOString().split('T')[0]))]
     .sort((a, b) => new Date(b) - new Date(a));
 
   let streak = 0;
   const today = new Date().toISOString().split('T')[0];
-  
-  const yesterdayDate = new Date();
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-  const yesterday = yesterdayDate.toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-  if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {
-    return 0;
-  }
+  if (dates[0] !== today && dates[0] !== yesterday) return 0;
 
-  let currentDateToCheck = new Date(sortedDates[0]); 
-
-  for (let i = 0; i < sortedDates.length; i++) {
-    const dateStr = sortedDates[i];
-    const checkStr = currentDateToCheck.toISOString().split('T')[0];
-
-    if (dateStr === checkStr) {
+  let expectedDate = new Date(dates[0]);
+  for (const date of dates) {
+    if (date === expectedDate.toISOString().split('T')[0]) {
       streak++;
-      currentDateToCheck.setDate(currentDateToCheck.getDate() - 1);
-    } else {
-      break; 
-    }
+      expectedDate.setDate(expectedDate.getDate() - 1);
+    } else break;
   }
   return streak;
 }
 
 
-
-app.get('/', (req, res) => {
-    res.send('Habit Tracker Server is Running...');
-});
+app.get('/', (req, res) => res.send('Habit Tracker Server Running!'));
 
 
 app.get('/api/habits', async (req, res) => {
   try {
-
-    if (!habitCollection) {
-        return res.status(500).send({ message: "Database not initialized yet" });
-    }
-
     const { search, category } = req.query;
     let query = {};
-
-    if (search) {
-      query.title = { $regex: search, $options: 'i' };
-    }
-    if (category && category !== 'All') {
-      query.category = category;
-    }
+    if (search) query.title = { $regex: search, $options: 'i' };
+    if (category && category !== 'All') query.category = category;
 
     const habits = await habitCollection
       .find(query)
-      .sort({ createdAt: -1 }) 
-      .limit(20) 
+      .sort({ createdAt: -1 })
+      .limit(20)
       .toArray();
-      
-    res.send(habits);
+    res.json(habits);
   } catch (err) {
-    console.error("Error fetching habits:", err);
-    res.status(500).send({ message: "Failed to load public habits" });
+    console.error(err);
+    res.status(500).json({ message: "Failed to load public habits" });
   }
 });
 
@@ -156,86 +129,93 @@ app.get('/api/habits', async (req, res) => {
 app.post('/api/habits', verifyToken, async (req, res) => {
   try {
     const habitData = req.body;
-    const user = req.user; 
     const newHabit = {
       ...habitData,
-      userEmail: user.email,
-      userName: user.name || user.email.split('@')[0],
-      firebaseUid: user.uid,
+      userEmail: req.user.email,
+      userName: req.user.name || req.user.email.split('@')[0],
+      firebaseUid: req.user.uid,       
       createdAt: new Date(),
       completionHistory: [],
       currentStreak: 0,
     };
     const result = await habitCollection.insertOne(newHabit);
-    res.status(201).send(result);
+    const inserted = await habitCollection.findOne({ _id: result.insertedId });
+    res.status(201).json(inserted);
   } catch (err) {
-    res.status(500).send({ message: "Failed to add habit", error: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Failed to create habit" });
   }
 });
 
 
 app.get('/api/habits/my', verifyToken, async (req, res) => {
   try {
-    const query = { firebaseUid: req.user.uid };
-    const habits = await habitCollection.find(query).sort({ createdAt: -1 }).toArray();
-    res.send(habits);
+    console.log(`Fetching habits for UID: ${req.user.uid}`);
+    const habits = await habitCollection
+      .find({ firebaseUid: req.user.uid })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(habits);
   } catch (err) {
-    res.status(500).send({ message: "Failed to load habits" });
+    console.error("Error fetching my habits:", err);
+    res.status(500).json({ message: "Failed to load your habits" });
   }
 });
 
 
 app.delete('/api/habits/:id', verifyToken, async (req, res) => {
   try {
-    const id = req.params.id;
-    const query = { _id: new ObjectId(id), firebaseUid: req.user.uid };
-    const result = await habitCollection.deleteOne(query);
-    if (result.deletedCount === 0) return res.status(404).send({ message: "Habit not found or unauthorized" });
-    res.send({ message: "Habit deleted", ...result });
+    const result = await habitCollection.deleteOne({
+      _id: new ObjectId(req.params.id),
+      firebaseUid: req.user.uid
+    });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Habit not found or unauthorized" });
+    }
+    res.json({ message: "Habit deleted" });
   } catch (err) {
-    res.status(500).send({ message: "Failed to delete" });
+    res.status(500).json({ message: "Delete failed" });
   }
 });
 
 
 app.patch('/api/habits/:id/complete', verifyToken, async (req, res) => {
   try {
-    const id = req.params.id;
-    const query = { _id: new ObjectId(id) }; 
+    const habit = await habitCollection.findOne({
+      _id: new ObjectId(req.params.id),
+      firebaseUid: req.user.uid
+    });
+    if (!habit) return res.status(404).json({ message: "Habit not found" });
 
-    const habit = await habitCollection.findOne(query);
-    if (!habit) return res.status(404).send({ message: "Habit not found" });
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const alreadyDone = habit.completionHistory.some(d => 
-      new Date(d).toISOString().split('T')[0] === todayStr
+    const today = new Date().toISOString().split('T')[0];
+    const already = habit.completionHistory.some(d =>
+      new Date(d).toISOString().split('T')[0] === today
     );
-
-    if (alreadyDone) return res.status(400).send({ message: "Already completed today" });
+    if (already) return res.status(400).json({ message: "Already completed today" });
 
     const updatedHistory = [...habit.completionHistory, new Date()];
     const newStreak = calculateStreak(updatedHistory);
 
-    await habitCollection.updateOne(query, {
-      $push: { completionHistory: new Date() },
-      $set: { currentStreak: newStreak }
-    });
+    await habitCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      {
+        $push: { completionHistory: new Date() },
+        $set: { currentStreak: newStreak }
+      }
+    );
 
-    const updatedHabit = await habitCollection.findOne(query);
-    res.send(updatedHabit);
+    const updated = await habitCollection.findOne({ _id: new ObjectId(req.params.id) });
+    res.json(updated);
   } catch (err) {
-    res.status(500).send({ message: "Failed to mark complete", error: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Complete failed" });
   }
 });
 
-
+// Update habit
 app.put('/api/habits/:id', verifyToken, async (req, res) => {
   try {
-    const id = req.params.id;
     const updatedData = req.body;
-    const query = { _id: new ObjectId(id), firebaseUid: req.user.uid };
-    
-  
     delete updatedData._id;
     delete updatedData.userEmail;
     delete updatedData.userName;
@@ -243,13 +223,19 @@ app.put('/api/habits/:id', verifyToken, async (req, res) => {
     delete updatedData.completionHistory;
     delete updatedData.currentStreak;
 
-    const result = await habitCollection.updateOne(query, { $set: updatedData });
-    if (result.matchedCount === 0) return res.status(404).send({ message: "Habit not found or unauthorized" });
-    
-    const updatedHabit = await habitCollection.findOne(query);
-    res.send(updatedHabit);
+    const result = await habitCollection.updateOne(
+      { _id: new ObjectId(req.params.id), firebaseUid: req.user.uid },
+      { $set: updatedData }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Not found or unauthorized" });
+    }
+
+    const updatedHabit = await habitCollection.findOne({ _id: new ObjectId(req.params.id) });
+    res.json(updatedHabit);
   } catch (err) {
-    res.status(500).send({ message: "Failed to update habit", error: err.message });
+    res.status(500).json({ message: "Update failed" });
   }
 });
 
