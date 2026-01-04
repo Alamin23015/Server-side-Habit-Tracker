@@ -10,7 +10,8 @@ app.use(cors({
     origin: [
         "http://localhost:5173",
         "https://habit-tracker-phi.vercel.app",
-        "https://server-three-lake.vercel.app"
+        "https://server-three-lake.vercel.app",
+        "https://habittracker-42947.web.app"
     ],
     credentials: true
 }));
