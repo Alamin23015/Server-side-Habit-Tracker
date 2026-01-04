@@ -179,31 +179,38 @@ app.patch('/api/habits/:id/complete', async (req, res) => {
     }
 });
 
-app.put('/api/habits/:id', async (req, res) => {
+
+app.patch('/api/habits/:id', async (req, res) => {
     try {
-        const email = req.body.userEmail;
+        
+        const email = req.query.email || req.body.userEmail;
+        
         if (!email) return res.status(400).json({ message: "userEmail is required" });
         if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ message: "Invalid ID" });
 
         const updatedData = { ...req.body };
+        
+        
         delete updatedData._id;
         delete updatedData.userEmail;
         delete updatedData.userName;
         delete updatedData.completionHistory;
         delete updatedData.currentStreak;
 
+      
         const result = await habitCollection.updateOne(
             { _id: new ObjectId(req.params.id), userEmail: email },
             { $set: updatedData }
         );
 
         if (result.matchedCount === 0) {
-            return res.status(404).json({ message: "Not found or unauthorized" });
+            return res.status(404).json({ message: "Habit not found or unauthorized" });
         }
 
         const updatedHabit = await habitCollection.findOne({ _id: new ObjectId(req.params.id) });
         res.json(updatedHabit);
     } catch (err) {
+        console.error("Update Error:", err);
         res.status(500).json({ message: "Update failed" });
     }
 });
