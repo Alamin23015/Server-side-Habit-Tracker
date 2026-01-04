@@ -182,22 +182,22 @@ app.patch('/api/habits/:id/complete', async (req, res) => {
 
 app.patch('/api/habits/:id', async (req, res) => {
     try {
-        
         const email = req.query.email || req.body.userEmail;
         
         if (!email) return res.status(400).json({ message: "userEmail is required" });
         if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ message: "Invalid ID" });
 
-        const updatedData = { ...req.body };
-        
-        
-        delete updatedData._id;
-        delete updatedData.userEmail;
-        delete updatedData.userName;
-        delete updatedData.completionHistory;
-        delete updatedData.currentStreak;
+       
+        const { habitTitle, description, category, reminderTime, imageUrl } = req.body;
 
-      
+        const updatedData = {
+            habitTitle,
+            description,
+            category,
+            reminderTime,
+            imageUrl 
+        };
+
         const result = await habitCollection.updateOne(
             { _id: new ObjectId(req.params.id), userEmail: email },
             { $set: updatedData }
